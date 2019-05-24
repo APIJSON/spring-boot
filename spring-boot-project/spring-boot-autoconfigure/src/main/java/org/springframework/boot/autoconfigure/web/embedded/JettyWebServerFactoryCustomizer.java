@@ -1,11 +1,11 @@
 /*
- * Copyright 2012-2018 the original author or authors.
+ * Copyright 2012-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,9 +21,10 @@ import java.util.Arrays;
 
 import org.eclipse.jetty.server.AbstractConnector;
 import org.eclipse.jetty.server.ConnectionFactory;
+import org.eclipse.jetty.server.CustomRequestLog;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.HttpConfiguration;
-import org.eclipse.jetty.server.NCSARequestLog;
+import org.eclipse.jetty.server.RequestLogWriter;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.handler.ContextHandler;
 import org.eclipse.jetty.server.handler.HandlerCollection;
@@ -37,6 +38,7 @@ import org.springframework.boot.web.embedded.jetty.JettyServerCustomizer;
 import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.Environment;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.unit.DataSize;
 
 /**
@@ -68,8 +70,7 @@ public class JettyWebServerFactoryCustomizer implements
 	public void customize(ConfigurableJettyWebServerFactory factory) {
 		ServerProperties properties = this.serverProperties;
 		ServerProperties.Jetty jettyProperties = properties.getJetty();
-		factory.setUseForwardHeaders(
-				getOrDeduceUseForwardHeaders(properties, this.environment));
+		factory.setUseForwardHeaders(getOrDeduceUseForwardHeaders());
 		PropertyMapper propertyMapper = PropertyMapper.get();
 		propertyMapper.from(jettyProperties::getAcceptors).whenNonNull()
 				.to(factory::setAcceptors);
@@ -95,13 +96,14 @@ public class JettyWebServerFactoryCustomizer implements
 		return value > 0;
 	}
 
-	private boolean getOrDeduceUseForwardHeaders(ServerProperties serverProperties,
-			Environment environment) {
-		if (serverProperties.isUseForwardHeaders() != null) {
-			return serverProperties.isUseForwardHeaders();
+	private boolean getOrDeduceUseForwardHeaders() {
+		if (this.serverProperties.getForwardHeadersStrategy()
+				.equals(ServerProperties.ForwardHeadersStrategy.NONE)) {
+			CloudPlatform platform = CloudPlatform.getActive(this.environment);
+			return platform != null && platform.isUsingForwardHeaders();
 		}
-		CloudPlatform platform = CloudPlatform.getActive(environment);
-		return platform != null && platform.isUsingForwardHeaders();
+		return this.serverProperties.getForwardHeadersStrategy()
+				.equals(ServerProperties.ForwardHeadersStrategy.NATIVE);
 	}
 
 	private void customizeConnectionTimeout(ConfigurableJettyWebServerFactory factory,
@@ -148,30 +150,33 @@ public class JettyWebServerFactoryCustomizer implements
 	private void customizeAccessLog(ConfigurableJettyWebServerFactory factory,
 			ServerProperties.Jetty.Accesslog properties) {
 		factory.addServerCustomizers((server) -> {
-			NCSARequestLog log = new NCSARequestLog();
+			RequestLogWriter logWriter = new RequestLogWriter();
+			String format = getLogFormat(properties);
+			CustomRequestLog log = new CustomRequestLog(logWriter, format);
+			if (!CollectionUtils.isEmpty(properties.getIgnorePaths())) {
+				log.setIgnorePaths(properties.getIgnorePaths().toArray(new String[0]));
+			}
 			if (properties.getFilename() != null) {
-				log.setFilename(properties.getFilename());
+				logWriter.setFilename(properties.getFilename());
 			}
 			if (properties.getFileDateFormat() != null) {
-				log.setFilenameDateFormat(properties.getFileDateFormat());
+				logWriter.setFilenameDateFormat(properties.getFileDateFormat());
 			}
-			log.setRetainDays(properties.getRetentionPeriod());
-			log.setAppend(properties.isAppend());
-			log.setExtended(properties.isExtendedFormat());
-			if (properties.getDateFormat() != null) {
-				log.setLogDateFormat(properties.getDateFormat());
-			}
-			if (properties.getLocale() != null) {
-				log.setLogLocale(properties.getLocale());
-			}
-			if (properties.getTimeZone() != null) {
-				log.setLogTimeZone(properties.getTimeZone().getID());
-			}
-			log.setLogCookies(properties.isLogCookies());
-			log.setLogServer(properties.isLogServer());
-			log.setLogLatency(properties.isLogLatency());
+			logWriter.setRetainDays(properties.getRetentionPeriod());
+			logWriter.setAppend(properties.isAppend());
 			server.setRequestLog(log);
 		});
+	}
+
+	private String getLogFormat(ServerProperties.Jetty.Accesslog properties) {
+		if (properties.getCustomFormat() != null) {
+			return properties.getCustomFormat();
+		}
+		else if (ServerProperties.Jetty.Accesslog.FORMAT.EXTENDED_NCSA
+				.equals(properties.getFormat())) {
+			return CustomRequestLog.EXTENDED_NCSA_FORMAT;
+		}
+		return CustomRequestLog.NCSA_FORMAT;
 	}
 
 	private static class MaxHttpHeaderSizeCustomizer implements JettyServerCustomizer {

@@ -1,11 +1,11 @@
 /*
- * Copyright 2012-2018 the original author or authors.
+ * Copyright 2012-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -33,7 +33,6 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.DeprecatedConfigurationProperty;
 import org.springframework.boot.context.properties.PropertyMapper;
 import org.springframework.boot.convert.DurationUnit;
 import org.springframework.core.io.Resource;
@@ -729,20 +728,6 @@ public class KafkaProperties {
 			this.bootstrapServers = bootstrapServers;
 		}
 
-		@DeprecatedConfigurationProperty(replacement = "spring.kafka.streams.cache-max-size-buffering")
-		@Deprecated
-		public Integer getCacheMaxBytesBuffering() {
-			return (this.cacheMaxSizeBuffering != null)
-					? (int) this.cacheMaxSizeBuffering.toBytes() : null;
-		}
-
-		@Deprecated
-		public void setCacheMaxBytesBuffering(Integer cacheMaxBytesBuffering) {
-			DataSize cacheMaxSizeBuffering = (cacheMaxBytesBuffering != null)
-					? DataSize.ofBytes(cacheMaxBytesBuffering) : null;
-			setCacheMaxSizeBuffering(cacheMaxSizeBuffering);
-		}
-
 		public DataSize getCacheMaxSizeBuffering() {
 			return this.cacheMaxSizeBuffering;
 		}
@@ -888,6 +873,12 @@ public class KafkaProperties {
 		 */
 		private Boolean logContainerConfig;
 
+		/**
+		 * Whether the container should fail to start if at least one of the configured
+		 * topics are not present on the broker.
+		 */
+		private boolean missingTopicsFatal = true;
+
 		public Type getType() {
 			return this.type;
 		}
@@ -974,6 +965,14 @@ public class KafkaProperties {
 
 		public void setLogContainerConfig(Boolean logContainerConfig) {
 			this.logContainerConfig = logContainerConfig;
+		}
+
+		public boolean isMissingTopicsFatal() {
+			return this.missingTopicsFatal;
+		}
+
+		public void setMissingTopicsFatal(boolean missingTopicsFatal) {
+			this.missingTopicsFatal = missingTopicsFatal;
 		}
 
 	}

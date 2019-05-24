@@ -1,11 +1,11 @@
 /*
- * Copyright 2012-2018 the original author or authors.
+ * Copyright 2012-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -195,7 +195,7 @@ public final class ConfigurationPropertyName
 		if (elementValue == null) {
 			return this;
 		}
-		Elements additionalElements = of(elementValue).elements;
+		Elements additionalElements = probablySingleElementOf(elementValue);
 		return new ConfigurationPropertyName(this.elements.append(additionalElements));
 	}
 
@@ -237,12 +237,7 @@ public final class ConfigurationPropertyName
 		if (this.getNumberOfElements() >= name.getNumberOfElements()) {
 			return false;
 		}
-		for (int i = 0; i < this.elements.getSize(); i++) {
-			if (!elementEquals(this.elements, name.elements, i)) {
-				return false;
-			}
-		}
-		return true;
+		return elementsEqual(name);
 	}
 
 	@Override
@@ -309,15 +304,34 @@ public final class ConfigurationPropertyName
 				&& other.elements.canShortcutWithSource(ElementType.UNIFORM)) {
 			return toString().equals(other.toString());
 		}
-		for (int i = 0; i < this.elements.getSize(); i++) {
-			if (!elementEquals(this.elements, other.elements, i)) {
+		return elementsEqual(other);
+	}
+
+	private boolean elementsEqual(ConfigurationPropertyName name) {
+		for (int i = this.elements.getSize() - 1; i >= 0; i--) {
+			if (elementDiffers(this.elements, name.elements, i)) {
 				return false;
 			}
 		}
 		return true;
 	}
 
-	private boolean elementEquals(Elements e1, Elements e2, int i) {
+	private boolean elementDiffers(Elements e1, Elements e2, int i) {
+		ElementType type1 = e1.getType(i);
+		ElementType type2 = e2.getType(i);
+		if (type1.allowsFastEqualityCheck() && type2.allowsFastEqualityCheck()) {
+			return !fastElementEquals(e1, e2, i);
+		}
+		else if (type1.allowsDashIgnoringEqualityCheck()
+				&& type2.allowsDashIgnoringEqualityCheck()) {
+			return !dashIgnoringElementEquals(e1, e2, i);
+		}
+		else {
+			return !defaultElementEquals(e1, e2, i);
+		}
+	}
+
+	private boolean defaultElementEquals(Elements e1, Elements e2, int i) {
 		int l1 = e1.getLength(i);
 		int l2 = e2.getLength(i);
 		boolean indexed1 = e1.getType(i).isIndexed();
@@ -355,6 +369,59 @@ public final class ConfigurationPropertyName
 		return true;
 	}
 
+	private boolean dashIgnoringElementEquals(Elements e1, Elements e2, int i) {
+		int l1 = e1.getLength(i);
+		int l2 = e2.getLength(i);
+		int i1 = 0;
+		int i2 = 0;
+		while (i1 < l1) {
+			if (i2 >= l2) {
+				return false;
+			}
+			char ch1 = e1.charAt(i, i1);
+			char ch2 = e2.charAt(i, i2);
+			if (ch1 == '-') {
+				i1++;
+			}
+			else if (ch2 == '-') {
+				i2++;
+			}
+			else if (ch1 != ch2) {
+				return false;
+			}
+			else {
+				i1++;
+				i2++;
+			}
+		}
+		boolean indexed2 = e2.getType(i).isIndexed();
+		while (i2 < l2) {
+			char ch2 = e2.charAt(i, i2++);
+			if (indexed2 || ch2 != '-') {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private boolean fastElementEquals(Elements e1, Elements e2, int i) {
+		int length1 = e1.getLength(i);
+		int length2 = e2.getLength(i);
+		if (length1 == length2) {
+			int i1 = 0;
+			while (length1-- != 0) {
+				char ch1 = e1.charAt(i, i1);
+				char ch2 = e2.charAt(i, i1);
+				if (ch1 != ch2) {
+					return false;
+				}
+				i1++;
+			}
+			return true;
+		}
+		return false;
+	}
+
 	@Override
 	public int hashCode() {
 		return 0;
@@ -373,16 +440,17 @@ public final class ConfigurationPropertyName
 				ElementType.DASHED)) {
 			return this.elements.getSource().toString();
 		}
-		StringBuilder result = new StringBuilder();
-		for (int i = 0; i < getNumberOfElements(); i++) {
+		int elements = getNumberOfElements();
+		StringBuilder result = new StringBuilder(elements * 8);
+		for (int i = 0; i < elements; i++) {
 			boolean indexed = isIndexed(i);
 			if (result.length() > 0 && !indexed) {
 				result.append('.');
 			}
 			if (indexed) {
-				result.append("[");
+				result.append('[');
 				result.append(getElement(i, Form.ORIGINAL));
-				result.append("]");
+				result.append(']');
 			}
 			else {
 				result.append(getElement(i, Form.DASHED));
@@ -420,12 +488,26 @@ public final class ConfigurationPropertyName
 	 * {@code returnNullIfInvalid} is {@code false}
 	 */
 	static ConfigurationPropertyName of(CharSequence name, boolean returnNullIfInvalid) {
+		Elements elements = elementsOf(name, returnNullIfInvalid);
+		return (elements != null) ? new ConfigurationPropertyName(elements) : null;
+	}
+
+	private static Elements probablySingleElementOf(CharSequence name) {
+		return elementsOf(name, false, 1);
+	}
+
+	private static Elements elementsOf(CharSequence name, boolean returnNullIfInvalid) {
+		return elementsOf(name, returnNullIfInvalid, ElementsParser.DEFAULT_CAPACITY);
+	}
+
+	private static Elements elementsOf(CharSequence name, boolean returnNullIfInvalid,
+			int parserCapacity) {
 		if (name == null) {
 			Assert.isTrue(returnNullIfInvalid, "Name must not be null");
 			return null;
 		}
 		if (name.length() == 0) {
-			return EMPTY;
+			return Elements.EMPTY;
 		}
 		if (name.charAt(0) == '.' || name.charAt(name.length() - 1) == '.') {
 			if (returnNullIfInvalid) {
@@ -434,7 +516,7 @@ public final class ConfigurationPropertyName
 			throw new InvalidConfigurationPropertyNameException(name,
 					Collections.singletonList('.'));
 		}
-		Elements elements = new ElementsParser(name, '.').parse();
+		Elements elements = new ElementsParser(name, '.', parserCapacity).parse();
 		for (int i = 0; i < elements.getSize(); i++) {
 			if (elements.getType(i) == ElementType.NON_UNIFORM) {
 				if (returnNullIfInvalid) {
@@ -444,7 +526,7 @@ public final class ConfigurationPropertyName
 						getInvalidChars(elements, i));
 			}
 		}
-		return new ConfigurationPropertyName(elements);
+		return elements;
 	}
 
 	private static List<Character> getInvalidChars(Elements elements, int index) {
@@ -789,7 +871,7 @@ public final class ConfigurationPropertyName
 			if ((end - start) < 1 || type == ElementType.EMPTY) {
 				return;
 			}
-			if (this.start.length <= end) {
+			if (this.start.length == this.size) {
 				this.start = expand(this.start);
 				this.end = expand(this.end);
 				this.type = expand(this.type);
@@ -896,6 +978,14 @@ public final class ConfigurationPropertyName
 
 		public boolean isIndexed() {
 			return this.indexed;
+		}
+
+		public boolean allowsFastEqualityCheck() {
+			return this == UNIFORM || this == NUMERICALLY_INDEXED;
+		}
+
+		public boolean allowsDashIgnoringEqualityCheck() {
+			return allowsFastEqualityCheck() || this == DASHED;
 		}
 
 	}

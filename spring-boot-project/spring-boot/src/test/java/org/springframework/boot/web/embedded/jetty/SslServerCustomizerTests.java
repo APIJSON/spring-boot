@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -34,6 +34,7 @@ import org.springframework.boot.web.server.Ssl;
 import org.springframework.boot.web.server.WebServerException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 /**
  * Tests for {@link SslServerCustomizer}.
@@ -81,17 +82,16 @@ public class SslServerCustomizerTests {
 	}
 
 	@Test
-	public void configureSslWhenSslIsEnabledWithNoKeyStoreThrowsWebServerException()
-			throws Exception {
+	public void configureSslWhenSslIsEnabledWithNoKeyStoreThrowsWebServerException() {
 		Ssl ssl = new Ssl();
 		SslServerCustomizer customizer = new SslServerCustomizer(null, ssl, null, null);
-		try {
-			customizer.configureSsl(new SslContextFactory(), ssl, null);
-		}
-		catch (Exception ex) {
-			assertThat(ex).isInstanceOf(WebServerException.class);
-			assertThat(ex).hasMessageContaining("Could not load key store 'null'");
-		}
+		assertThatExceptionOfType(Exception.class).isThrownBy(
+				() -> customizer.configureSsl(new SslContextFactory.Server(), ssl, null))
+				.satisfies((ex) -> {
+					assertThat(ex).isInstanceOf(WebServerException.class);
+					assertThat(ex)
+							.hasMessageContaining("Could not load key store 'null'");
+				});
 	}
 
 	private Server createCustomizedServer() {
